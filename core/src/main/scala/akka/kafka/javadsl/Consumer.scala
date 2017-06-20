@@ -10,7 +10,7 @@ import akka.actor.ActorRef
 import akka.japi.Pair
 import akka.kafka.ConsumerMessage.CommittableMessage
 import akka.kafka.internal.ConsumerStage.WrappedConsumerControl
-import akka.kafka.{AutoSubscription, ConsumerSettings, ManualSubscription, Subscription, scaladsl}
+import akka.kafka.{ConsumerSettings, ManualSubscription, Subscription, scaladsl}
 import akka.stream.javadsl.Source
 import akka.{Done, NotUsed}
 import org.apache.kafka.clients.consumer.ConsumerRecord
@@ -98,7 +98,7 @@ object Consumer {
    * When topic-partition is assigned to a consumer this source will emit tuple with assigned topic-partition and a corresponding source
    * When topic-partition is revoked then corresponding source completes
    */
-  def plainPartitionedSource[K, V](settings: ConsumerSettings[K, V], subscription: AutoSubscription): Source[Pair[TopicPartition, Source[ConsumerRecord[K, V], NotUsed]], Control] = {
+  def plainPartitionedSource[K, V](settings: ConsumerSettings[K, V], subscription: Subscription): Source[Pair[TopicPartition, Source[ConsumerRecord[K, V], NotUsed]], Control] = {
     scaladsl.Consumer.plainPartitionedSource(settings, subscription)
       .map {
         case (tp, source) => Pair(tp, source.asJava)
@@ -110,7 +110,7 @@ object Consumer {
   /**
    * The same as [[#plainPartitionedSource]] but with offset commit support
    */
-  def committablePartitionedSource[K, V](settings: ConsumerSettings[K, V], subscription: AutoSubscription): Source[Pair[TopicPartition, Source[CommittableMessage[K, V], NotUsed]], Control] = {
+  def committablePartitionedSource[K, V](settings: ConsumerSettings[K, V], subscription: Subscription): Source[Pair[TopicPartition, Source[CommittableMessage[K, V], NotUsed]], Control] = {
     scaladsl.Consumer.committablePartitionedSource(settings, subscription)
       .map {
         case (tp, source) => Pair(tp, source.asJava)

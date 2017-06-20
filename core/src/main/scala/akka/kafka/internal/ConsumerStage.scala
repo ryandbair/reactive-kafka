@@ -30,14 +30,14 @@ import scala.concurrent.{ExecutionContext, Future, Promise}
  * INTERNAL API
  */
 private[kafka] object ConsumerStage {
-  def plainSubSource[K, V](settings: ConsumerSettings[K, V], subscription: AutoSubscription) = {
+  def plainSubSource[K, V](settings: ConsumerSettings[K, V], subscription: Subscription) = {
     new KafkaSourceStage[K, V, (TopicPartition, Source[ConsumerRecord[K, V], NotUsed])] {
       override protected def logic(shape: SourceShape[(TopicPartition, Source[ConsumerRecord[K, V], NotUsed])]) =
         new SubSourceLogic[K, V, ConsumerRecord[K, V]](shape, settings, subscription) with PlainMessageBuilder[K, V]
     }
   }
 
-  def committableSubSource[K, V](settings: ConsumerSettings[K, V], subscription: AutoSubscription) = {
+  def committableSubSource[K, V](settings: ConsumerSettings[K, V], subscription: Subscription) = {
     new KafkaSourceStage[K, V, (TopicPartition, Source[CommittableMessage[K, V], NotUsed])] {
       override protected def logic(shape: SourceShape[(TopicPartition, Source[CommittableMessage[K, V], NotUsed])]) =
         new SubSourceLogic[K, V, CommittableMessage[K, V]](shape, settings, subscription) with CommittableMessageBuilder[K, V] {

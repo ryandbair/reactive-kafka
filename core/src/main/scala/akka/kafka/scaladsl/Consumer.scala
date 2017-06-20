@@ -95,13 +95,13 @@ object Consumer {
    * source of `ConsumerRecord`s.
    * When a topic-partition is revoked, the corresponding source completes.
    */
-  def plainPartitionedSource[K, V](settings: ConsumerSettings[K, V], subscription: AutoSubscription): Source[(TopicPartition, Source[ConsumerRecord[K, V], NotUsed]), Control] =
+  def plainPartitionedSource[K, V](settings: ConsumerSettings[K, V], subscription: Subscription): Source[(TopicPartition, Source[ConsumerRecord[K, V], NotUsed]), Control] =
     Source.fromGraph(ConsumerStage.plainSubSource[K, V](settings, subscription))
 
   /**
    * The same as [[#plainPartitionedSource]] but with offset commit support
    */
-  def committablePartitionedSource[K, V](settings: ConsumerSettings[K, V], subscription: AutoSubscription): Source[(TopicPartition, Source[CommittableMessage[K, V], NotUsed]), Control] =
+  def committablePartitionedSource[K, V](settings: ConsumerSettings[K, V], subscription: Subscription): Source[(TopicPartition, Source[CommittableMessage[K, V], NotUsed]), Control] =
     Source.fromGraph(ConsumerStage.committableSubSource[K, V](settings, subscription))
 
   /**

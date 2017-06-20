@@ -6,9 +6,9 @@ package akka.kafka.internal
 
 import akka.NotUsed
 import akka.actor.{ActorRef, ExtendedActorSystem, Terminated}
-import akka.kafka.Subscriptions.{TopicSubscription, TopicSubscriptionPattern}
+import akka.kafka.Subscriptions.{Assignment, AssignmentWithOffset, TopicSubscription, TopicSubscriptionPattern}
 import akka.kafka.scaladsl.Consumer.Control
-import akka.kafka.{AutoSubscription, ConsumerSettings, KafkaConsumerActor}
+import akka.kafka.{ConsumerSettings, KafkaConsumerActor, Subscription}
 import akka.stream.scaladsl.Source
 import akka.stream.stage.GraphStageLogic.StageActor
 import akka.stream.stage._
@@ -22,7 +22,7 @@ import scala.collection.immutable
 private[kafka] abstract class SubSourceLogic[K, V, Msg](
     val shape: SourceShape[(TopicPartition, Source[Msg, NotUsed])],
     settings: ConsumerSettings[K, V],
-    subscription: AutoSubscription
+    subscription: Subscription
 ) extends GraphStageLogic(shape) with PromiseControl with MessageBuilder[K, V, Msg] {
   var consumer: ActorRef = _
   var self: StageActor = _
@@ -47,6 +47,12 @@ private[kafka] abstract class SubSourceLogic[K, V, Msg](
       KafkaConsumerActor.rebalanceListener(partitionAssignedCB.invoke, partitionRevokedCB.invoke)
 
     subscription match {
+      case Assignment(tps) =>
+        consumer.tell(KafkaConsumerActor.Internal.Assign(tps), self.ref)
+        buffer = buffer.enqueue(tps)
+      case AssignmentWithOffset(tps) =>
+        consumer.tell(KafkaConsumerActor.Internal.AssignWithOffset(tps), self.ref)
+        buffer = buffer.enqueue(tps.keySet)
       case TopicSubscription(topics) =>
         consumer.tell(KafkaConsumerActor.Internal.Subscribe(topics, rebalanceListener), self.ref)
       case TopicSubscriptionPattern(topics) =>

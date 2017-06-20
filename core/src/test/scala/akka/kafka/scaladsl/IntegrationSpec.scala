@@ -6,30 +6,34 @@ package akka.kafka.scaladsl
 
 import java.util.UUID
 import java.util.concurrent.{ConcurrentLinkedQueue, TimeUnit}
-import akka.kafka.test.Utils._
-import scala.concurrent.{Await, Future}
-import scala.concurrent.duration._
-import scala.collection.JavaConverters._
-import scala.language.postfixOps
-import akka.{Done, NotUsed}
+
 import akka.actor.ActorSystem
-import akka.kafka.Subscriptions.TopicSubscription
-import akka.kafka.{ConsumerSettings, ProducerSettings}
 import akka.kafka.ConsumerMessage.CommittableOffsetBatch
-import akka.kafka.ProducerMessage
 import akka.kafka.ProducerMessage.Message
+import akka.kafka.Subscriptions.TopicSubscription
+import akka.kafka.test.Utils._
+import akka.kafka.{ConsumerSettings, ProducerMessage, ProducerSettings, Subscriptions}
 import akka.stream.ActorMaterializer
 import akka.stream.scaladsl.{Keep, Sink, Source}
-import akka.stream.testkit.scaladsl.TestSink
 import akka.stream.testkit.TestSubscriber
+import akka.stream.testkit.scaladsl.TestSink
 import akka.testkit.TestKit
+import akka.{Done, NotUsed}
+import kafka.admin.AdminUtils
+import kafka.utils.ZkUtils
 import net.manub.embeddedkafka.{EmbeddedKafka, EmbeddedKafkaConfig}
+import org.I0Itec.zkclient.ZkConnection
 import org.apache.kafka.clients.consumer.ConsumerConfig
 import org.apache.kafka.clients.producer.ProducerRecord
+import org.apache.kafka.common.TopicPartition
 import org.apache.kafka.common.serialization.{ByteArrayDeserializer, ByteArraySerializer, StringDeserializer, StringSerializer}
 import org.scalactic.TypeCheckedTripleEquals
-import org.scalatest.{BeforeAndAfterAll, BeforeAndAfterEach, Matchers, WordSpecLike}
-import org.scalatest.Assertions
+import org.scalatest._
+
+import scala.collection.JavaConverters._
+import scala.concurrent.duration._
+import scala.concurrent.{Await, Future}
+import scala.language.postfixOps
 
 class IntegrationSpec extends TestKit(ActorSystem("IntegrationSpec"))
     with WordSpecLike with Matchers with BeforeAndAfterAll
@@ -56,6 +60,17 @@ class IntegrationSpec extends TestKit(ActorSystem("IntegrationSpec"))
   def uuid = UUID.randomUUID().toString
 
   def createTopic(number: Int) = s"topic$number-" + uuid
+
+  def createPartitionedTopic(number: Int, partitions: Int): String = {
+    val topic = createTopic(number)
+    val zkClient = ZkUtils.createZkClient("localhost:2181", 5000, 5000)
+    val zkUtils = new ZkUtils(zkClient, new ZkConnection("localhost:2181"), false)
+    AdminUtils.createTopic(zkUtils, topic, partitions, 1)
+    zkUtils.close()
+    zkClient.close()
+    topic
+  }
+
   def createGroup(number: Int) = s"group$number-" + uuid
 
   val partition0 = 0
@@ -69,14 +84,16 @@ class IntegrationSpec extends TestKit(ActorSystem("IntegrationSpec"))
     producer.close(60, TimeUnit.SECONDS)
   }
 
+  private final def defaultPartitioner(i: Int): Int = partition0
+
   /**
    * Produce messages to topic using specified range and return
    * a Future so the caller can synchronize consumption.
    */
-  def produce(topic: String, range: Range): Future[Done] = {
+  def produce(topic: String, range: Range, partitioner: Int => Int = defaultPartitioner): Future[Done] = {
     val source = Source(range)
       .map(n => {
-        val record = new ProducerRecord(topic, partition0, null: Array[Byte], n.toString)
+        val record = new ProducerRecord(topic, partitioner(n), null: Array[Byte], n.toString)
 
         Message(record, NotUsed)
       })
@@ -308,6 +325,32 @@ class IntegrationSpec extends TestKit(ActorSystem("IntegrationSpec"))
 
         probe.cancel()
       }
+    }
+
+    "connect partitioned consumer to partitions specified in manual subscription" in {
+      val partitionCount = 3
+      def partitioner(n: Int) = n % partitionCount
+      val topic1 = createPartitionedTopic(1, partitionCount)
+
+      val group1 = createGroup(1)
+      val consumerSettings1 = createConsumerSettings(group1)
+
+      Await.result(produce(topic1, 1 to 100, partitioner), remainingOrDefault)
+
+      val subscribedPartitions = Set(new TopicPartition(topic1, 0), new TopicPartition(topic1, 2))
+      val source = Consumer.plainPartitionedSource(consumerSettings1, Subscriptions.assignment(subscribedPartitions))
+      val probe = source.runWith(TestSink.probe)
+      probe.request(2)
+      probe.expectNextN(2).foreach { case (topicPartition, subSource) =>
+        val partition = topicPartition.partition()
+        Seq(0, 2) should contain(partition)
+        val subProbe = subSource.runWith(TestSink.probe)
+        val expected = (1 to 100).filter(n => partitioner(n) == partition)
+        subProbe.request(expected.size)
+        subProbe.expectNextN(expected.size).map(record => record.value().toInt) should contain theSameElementsAs expected
+      }
+      probe.expectNoMsg()
+      probe.cancel()
     }
   }
 }
